@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Env / secrets
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Build
+frontend/build/
+dist/
+*.egg-info/
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

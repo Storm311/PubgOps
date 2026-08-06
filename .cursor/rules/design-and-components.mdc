@@ -1,0 +1,18 @@
+---
+description: Design system and component isolation standards
+alwaysApply: true
+---
+
+# Design & components
+
+## Design
+
+- Follow the existing tactical PUBG UI (tact-* tokens, fonts, clipped panels). Do not introduce a second visual language.
+- Design work must be explicit: match the current system unless the user requests a redesign.
+- Avoid one-off decorative effects that hurt performance (heavy blur, full-page noise, continuous animations on scrollable lists).
+
+## Components
+
+- Prefer isolated, reusable components under `frontend/src/components/` (or feature folders) over page-local monoliths.
+- Replay map, playback controls, dossier stats, and match rows should stay reusable and props-driven.
+- Backend parsing/helpers for telemetry belong in dedicated modules (e.g. `telemetry_replay.py`), not buried only in route handlers.

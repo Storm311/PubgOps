@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: auto;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: Rajdhani, 'Segoe UI', sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: #d8d4c4;
+    background-color: #0a0c0a;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: rgba(232, 184, 74, 0.35);
+    color: #0a0c0a;
+  }
+}
+
+@layer components {
+  .clip-panel {
+    clip-path: polygon(
+      0 0,
+      calc(100% - 14px) 0,
+      100% 14px,
+      100% 100%,
+      14px 100%,
+      0 calc(100% - 14px)
+    );
+  }
+
+  .clip-btn {
+    clip-path: polygon(
+      0 0,
+      calc(100% - 10px) 0,
+      100% 10px,
+      100% 100%,
+      10px 100%,
+      0 calc(100% - 10px)
+    );
+  }
+
+  .stat-label {
+    @apply font-mono text-[10px] uppercase tracking-[0.22em] text-tact-mute;
+  }
+
+  .stat-value {
+    @apply font-display text-3xl leading-none tracking-wide text-tact-fog;
+  }
+
+  .panel {
+    @apply relative bg-tact-panel border border-tact-rim;
+  }
+
+  .place-badge {
+    @apply inline-flex items-center justify-center min-w-[2.75rem] px-2 py-1 font-display text-xl tracking-wider;
+  }
+
+  .place-chicken {
+    @apply bg-tact-gold text-tact-void;
+  }
+
+  .place-top10 {
+    @apply bg-tact-olive/40 text-tact-flare border border-tact-gold/40;
+  }
+
+  .place-default {
+    @apply bg-tact-steel text-tact-sand border border-tact-rim;
+  }
+}
+
+/* Custom range slider for telemetry */
+.tact-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: #2a332a;
+  outline: none;
+}
+
+.tact-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #e8b84a;
+  cursor: pointer;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+.tact-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #e8b84a;
+  border: none;
+  cursor: pointer;
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}

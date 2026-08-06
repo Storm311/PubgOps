@@ -1,0 +1,14 @@
+---
+description: Product backlog and how to pick improvement work
+alwaysApply: true
+---
+
+# Backlog & product memory
+
+Before proposing large new features, check [BACKLOG.md](../../BACKLOG.md) for known bugs and planned work.
+
+When the user reports a bug or asks to “remember later”:
+1. Add or update an item in `BACKLOG.md` (do not invent completion).
+2. Prefer fixing listed **Bugs** before greenfield features unless the user prioritizes otherwise.
+
+When implementing backlog items, mark them done in `BACKLOG.md` with a short note under **Done**.
