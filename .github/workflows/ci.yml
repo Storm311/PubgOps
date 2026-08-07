@@ -8,9 +8,15 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_ROOT_USER_ACTION: ignore
+  npm_config_fund: "false"
+  npm_config_audit: "false"
+
 jobs:
   quality:
-    name: Quality
+    name: "1 · Quality"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,13 +28,18 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Backend lint (ruff)
+      - name: Backend — ruff
         working-directory: backend
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          set -euo pipefail
+          echo "::group::Install Python tooling"
+          python -m pip install -q -r requirements-dev.txt
+          echo "::endgroup::"
+
+          echo "::notice title=Quality·backend::ruff check + format"
           python -m ruff check .
           python -m ruff format --check .
+          echo "Backend lint OK" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -37,15 +48,27 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Frontend lint and typecheck
+      - name: Frontend — typecheck + eslint
         working-directory: frontend
         run: |
-          npm ci
+          set -euo pipefail
+          echo "::group::Install npm packages"
+          npm ci --prefer-offline --no-audit --no-fund
+          echo "::endgroup::"
+
+          echo "::notice title=Quality·frontend::tsc --noEmit"
           npm run typecheck
+          echo "::notice title=Quality·frontend::eslint"
           npm run lint
+          {
+            echo "### 1 · Quality"
+            echo "- Backend ruff: pass"
+            echo "- Frontend typecheck: pass"
+            echo "- Frontend eslint: pass"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   unit:
-    name: Unit tests
+    name: "2 · Unit tests"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,14 +80,30 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Backend unit tests
+      - name: Backend — pytest (offline)
+        id: backend_unit
         working-directory: backend
         env:
           PUBG_API_KEY: test_api_key
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-          pytest -m "not integration" -q
+          set -euo pipefail
+          echo "::group::Install Python tooling"
+          python -m pip install -q -r requirements-dev.txt
+          echo "::endgroup::"
+
+          echo "::notice title=Unit·backend::pytest -m 'not integration'"
+          set +e
+          OUT="$(pytest -m "not integration" -q --tb=line 2>&1)"
+          CODE=$?
+          set -e
+          echo "$OUT"
+          SUMMARY="$(echo "$OUT" | tail -n 1)"
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+          echo "Backend unit: $SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error title=Backend unit failed::$SUMMARY"
+            exit "$CODE"
+          fi
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -73,14 +112,46 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Frontend unit tests
+      - name: Frontend — Jest
+        id: frontend_unit
         working-directory: frontend
         run: |
-          npm ci
-          npm run test:ci
+          set -euo pipefail
+          echo "::group::Install npm packages"
+          npm ci --prefer-offline --no-audit --no-fund
+          echo "::endgroup::"
+
+          echo "::notice title=Unit·frontend::npm run test:ci"
+          set +e
+          npm run test:ci > /tmp/frontend-unit.txt 2>&1
+          CODE=$?
+          set -e
+          # Surface only PASS/FAIL suite lines + totals (CRA is otherwise very noisy)
+          grep -E '^(PASS|FAIL) |Tests:|Test Suites:|● ' /tmp/frontend-unit.txt || true
+          if [ "$CODE" -ne 0 ]; then
+            echo "::group::Full Jest log"
+            cat /tmp/frontend-unit.txt
+            echo "::endgroup::"
+          fi
+          SUMMARY="$(grep -E 'Tests:|Test Suites:' /tmp/frontend-unit.txt | tr '\n' ' ' | sed 's/  */ /g')"
+          echo "summary=${SUMMARY:-see log}" >> "$GITHUB_OUTPUT"
+          echo "Frontend unit: ${SUMMARY:-see log}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error title=Frontend unit failed::${SUMMARY:-see grouped Jest log}"
+            exit "$CODE"
+          fi
+
+      - name: Unit summary
+        if: always()
+        run: |
+          {
+            echo "### 2 · Unit tests"
+            echo "- Backend: ${{ steps.backend_unit.outputs.summary || 'failed before summary' }}"
+            echo "- Frontend: ${{ steps.frontend_unit.outputs.summary || 'failed before summary' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   integrate:
-    name: Compose smoke and live API
+    name: "3 · Stack + live API"
     runs-on: ubuntu-latest
     needs: [quality, unit]
     environment: pubg_api_key
@@ -88,48 +159,63 @@ jobs:
       PUBG_API_KEY: ${{ secrets.API_KEY || vars.API_KEY }}
       PUBGOPS_BASE_URL: http://localhost:8000
       PUBGOPS_TEST_PLAYER: shroud
+      COMPOSE_FILE: docker-compose.yml:docker-compose.ci.yml
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require PUBG API key
+      - name: Prepare API key
         run: |
-          # Trim CR/LF/spaces — GitHub env vars/secrets often pick up a trailing newline,
-          # which makes requests reject the Authorization header and look like "player not found".
+          set -euo pipefail
+          # Trim CR/LF/spaces — trailing newlines break Authorization headers.
           PUBG_API_KEY="$(printf '%s' "$PUBG_API_KEY" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
           echo "PUBG_API_KEY=$PUBG_API_KEY" >> "$GITHUB_ENV"
           if [ -z "$PUBG_API_KEY" ]; then
-            echo "::error::PUBG_API_KEY is empty. Set API_KEY as a secret or variable on the pubg_api_key environment."
+            echo "::error title=Missing API key::Set API_KEY on the pubg_api_key environment (secret preferred)."
             exit 1
           fi
-          echo "PUBG_API_KEY length after trim: ${#PUBG_API_KEY}"
-
-      - name: Write backend/.env for compose
-        run: |
           printf 'PUBG_API_KEY=%s\n' "$PUBG_API_KEY" > backend/.env
+          echo "::notice title=Integrate·key::API key loaded (${#PUBG_API_KEY} chars, trimmed)"
+          echo "API key: ready (${#PUBG_API_KEY} chars)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build and start stack
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build
-
-      - name: Wait for backend health
+      - name: Build and start Compose stack
         run: |
+          set -euo pipefail
+          echo "::notice title=Integrate·compose::Building images and starting services"
+          echo "::group::docker compose up --build"
+          docker compose up -d --build --quiet-pull
+          echo "::endgroup::"
+          echo "Compose: started" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Wait for backend
+        run: |
+          set -euo pipefail
           for i in $(seq 1 60); do
             if curl -sf http://localhost:8000/ >/dev/null; then
-              echo "Backend is up"
+              echo "::notice title=Integrate·health::Backend healthy (attempt $i)"
+              echo "Backend health: OK (attempt $i)" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 2
           done
-          echo "::error::Backend did not become healthy in time"
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs
+          echo "::error title=Backend unhealthy::Did not respond on :8000 within ~2 minutes"
+          echo "::group::backend logs"
+          docker compose logs --no-color --tail=80 backend
+          echo "::endgroup::"
           exit 1
 
       - name: Smoke checks
         run: |
-          set -e
+          set -euo pipefail
           ROOT="$(curl -sf http://localhost:8000/)"
           echo "$ROOT" | grep -q 'PubgOps API is running'
-          curl -sf -o /dev/null -w "%{http_code}" http://localhost:3000/ | grep -q 200
-          echo "Smoke checks passed"
+          FE_CODE="$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:3000/)"
+          test "$FE_CODE" = "200"
+          echo "::notice title=Integrate·smoke::GET / → OK · frontend → $FE_CODE"
+          {
+            echo "### Smoke"
+            echo "- \`GET http://localhost:8000/\` → PubgOps API is running"
+            echo "- \`GET http://localhost:3000/\` → $FE_CODE"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -138,17 +224,85 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
 
-      - name: Live PUBG API integration tests
+      - name: Live PUBG API tests
+        id: live
         working-directory: backend
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-          pytest -m integration -q
+          set -euo pipefail
+          echo "::group::Install Python tooling"
+          python -m pip install -q -r requirements-dev.txt
+          echo "::endgroup::"
+
+          echo "::notice title=Integrate·live API::pytest -m integration (player=$PUBGOPS_TEST_PLAYER)"
+          set +e
+          OUT="$(pytest -m integration -q --tb=line 2>&1)"
+          CODE=$?
+          set -e
+          echo "$OUT"
+          SUMMARY="$(echo "$OUT" | tail -n 1)"
+          echo "summary=$SUMMARY" >> "$GITHUB_OUTPUT"
+          echo "Live API: $SUMMARY" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error title=Live API failed::$SUMMARY"
+            exit "$CODE"
+          fi
+          echo "::notice title=Integrate·live API::pass — $SUMMARY"
 
       - name: Backend logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend
+        run: |
+          echo "::group::backend logs (tail 120)"
+          docker compose logs --no-color --tail=120 backend || true
+          echo "::endgroup::"
 
       - name: Tear down stack
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: |
+          docker compose down -v --remove-orphans
+          echo "Compose: torn down" >> "$GITHUB_STEP_SUMMARY"
+
+  result:
+    name: "CI result"
+    runs-on: ubuntu-latest
+    needs: [quality, unit, integrate]
+    if: always()
+    steps:
+      - name: Pipeline status
+        env:
+          Q: ${{ needs.quality.result }}
+          U: ${{ needs.unit.result }}
+          I: ${{ needs.integrate.result }}
+        run: |
+          set -euo pipefail
+          mark() {
+            case "$1" in
+              success) echo "PASS" ;;
+              failure) echo "FAIL" ;;
+              skipped) echo "SKIP" ;;
+              cancelled) echo "CANCEL" ;;
+              *) echo "$1" ;;
+            esac
+          }
+
+          {
+            echo "## PubgOps CI"
+            echo ""
+            echo "| Stage | Result |"
+            echo "|-------|--------|"
+            echo "| 1 · Quality | **$(mark "$Q")** (\`$Q\`) |"
+            echo "| 2 · Unit tests | **$(mark "$U")** (\`$U\`) |"
+            echo "| 3 · Stack + live API | **$(mark "$I")** (\`$I\`) |"
+            echo ""
+            echo "- Branch: \`${{ github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "Scan the job list for **Annotations** (notice/error). Install and Docker build output is folded under groups."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::notice title=CI result::1 Quality=$Q · 2 Unit=$U · 3 Integrate=$I"
+
+          if [ "$Q" != "success" ] || [ "$U" != "success" ] || [ "$I" != "success" ]; then
+            echo "::error title=CI failed::1=$Q 2=$U 3=$I — open the FAIL job, then its Annotations"
+            exit 1
+          fi
+          echo "::notice title=CI passed::All three stages green"
