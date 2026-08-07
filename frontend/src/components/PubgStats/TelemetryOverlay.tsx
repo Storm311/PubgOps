@@ -17,6 +17,7 @@ import havenMap from '../../assets/Pubg/map_images/compressed/Haven_High_Res.png
 import destonMap from '../../assets/Pubg/map_images/compressed/Deston_High_Res.png';
 import rondoMap from '../../assets/Pubg/map_images/compressed/Rondo_High_Res.png';
 import campJackalMap from '../../assets/Pubg/map_images/compressed/Camp_Jackal_High_Res.png';
+import { formatDuration, lerp } from '../../utils/replayMath';
 
 const mapImages: { [key: string]: string } = {
   Erangel: erangelMap,
@@ -147,12 +148,6 @@ const SpeedDownIcon = () => (
   </svg>
 );
 
-const formatDuration = (seconds: number): string => {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-};
-
 const TEAM_COLORS = [
   'rgba(255, 0, 0, 0.85)',
   'rgba(0, 220, 0, 0.85)',
@@ -173,8 +168,6 @@ const getTeamColor = (teamId: number | null | undefined, isMainPlayer: boolean):
   if (teamId === undefined || teamId === null) return 'rgba(160, 160, 160, 0.85)';
   return TEAM_COLORS[teamId % TEAM_COLORS.length];
 };
-
-const lerp = (a: number, b: number, u: number) => a + (b - a) * u;
 
 const bisectRight = (times: number[], target: number): number => {
   let lo = 0;

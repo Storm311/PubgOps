@@ -1,0 +1,6 @@
+# CI override: inject PUBG_API_KEY from the host environment (written to backend/.env in the workflow as well).
+services:
+  backend:
+    environment:
+      PUBG_API_KEY: ${PUBG_API_KEY}
+      CORS_ORIGINS: http://localhost:3000

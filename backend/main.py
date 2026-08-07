@@ -1,13 +1,14 @@
+import logging
+import os
+import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional
+
+import requests
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import os
-import requests
-from dotenv import load_dotenv
-from typing import Optional, List, Dict
-import logging
-import traceback
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from telemetry_replay import (
     build_sparse_replay,
@@ -20,10 +21,10 @@ from telemetry_replay import (
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,  # Changed from DEBUG to INFO
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler()  # This ensures logs go to console
-    ]
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ MAP_NAMES = {
     "Savage_Main": "Sanhok",
     "Summerland_Main": "Karakin",
     "Tiger_Main": "Taego",
-    "Neon_Main": "Rondo"
+    "Neon_Main": "Rondo",
 }
 
 # Try different shards in order
@@ -84,8 +85,7 @@ def _find_player(player_name: str, headers: dict):
 
     for shard in SHARDS:
         player_url = (
-            f"https://api.pubg.com/shards/{shard}/players"
-            f"?filter[playerNames]={player_name}"
+            f"https://api.pubg.com/shards/{shard}/players?filter[playerNames]={player_name}"
         )
         logger.info("Trying shard %s: %s", shard, player_url)
         try:
@@ -142,9 +142,11 @@ class PlayerStats(BaseModel):
     matches: Optional[List[str]] = None
     stats: Optional[dict] = None
 
+
 class TelemetryRequest(BaseModel):
     telemetry_url: str
     player_name: Optional[str] = ""
+
 
 class TelemetryLoadResponse(BaseModel):
     match_id: str
@@ -160,6 +162,7 @@ class TelemetryLoadResponse(BaseModel):
     kills: List[dict] = []
     debug_info: dict
 
+
 class FramePlayer(BaseModel):
     name: str
     x: float
@@ -169,38 +172,40 @@ class FramePlayer(BaseModel):
     is_dead: bool = False
     is_game: float = 0
 
+
 class FrameResponse(BaseModel):
     t: float
     players: List[FramePlayer]
     kills_until_t: List[dict]
     map_name: str
 
+
 @app.get("/")
 async def root():
     return {"message": "PubgOps API is running"}
+
 
 @app.get("/player/{player_name}")
 async def get_player_stats(player_name: str):
     try:
         logger.info(f"Fetching stats for player: {player_name}")
-        
+
         # Get player data
-        headers = {
-            "Authorization": f"Bearer {PUBG_API_KEY}",
-            "Accept": "application/vnd.api+json"
-        }
+        headers = {"Authorization": f"Bearer {PUBG_API_KEY}", "Accept": "application/vnd.api+json"}
 
         player_data, player_id, correct_shard = _find_player(player_name, headers)
-        
+
         # Get player's lifetime stats
         try:
-            lifetime_url = f"https://api.pubg.com/shards/{correct_shard}/players/{player_id}/seasons/lifetime"
+            lifetime_url = (
+                f"https://api.pubg.com/shards/{correct_shard}/players/{player_id}/seasons/lifetime"
+            )
             logger.info(f"Requesting lifetime stats from: {lifetime_url}")
-            
+
             lifetime_response = requests.get(lifetime_url, headers=headers)
             lifetime_response.raise_for_status()
             lifetime_data = lifetime_response.json()
-            
+
             # Extract the stats from the lifetime data
             stats = {
                 "total_matches": 0,
@@ -208,9 +213,9 @@ async def get_player_stats(player_name: str):
                 "total_damage": 0,
                 "total_distance": 0,
                 "most_kills": 0,
-                "match_details": []
+                "match_details": [],
             }
-            
+
             # Process the lifetime stats
             if lifetime_data.get("data", {}).get("attributes", {}).get("gameModeStats", {}):
                 game_mode_stats = lifetime_data["data"]["attributes"]["gameModeStats"]
@@ -222,57 +227,47 @@ async def get_player_stats(player_name: str):
                     current_most_kills = mode_stats.get("roundMostKills", 0)
                     if current_most_kills > stats["most_kills"]:
                         stats["most_kills"] = current_most_kills
-            
-            return {
-                "player_name": player_name,
-                "platform": correct_shard,
-                "stats": stats
-            }
-            
+
+            return {"player_name": player_name, "platform": correct_shard, "stats": stats}
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching lifetime stats: {str(e)}")
-            if hasattr(e, 'response') and e.response is not None:
+            if hasattr(e, "response") and e.response is not None:
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response text: {e.response.text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error fetching lifetime stats: {str(e)}"
-            )
-        
+            raise HTTPException(status_code=500, detail=f"Error fetching lifetime stats: {str(e)}")
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error: {str(e)}"
-        )
-    
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
 @app.get("/player/{player_name}/matches")
 async def get_player_matches(player_name: str):
     try:
         logger.info(f"Fetching matches for player: {player_name}")
-        
+
         # Get player data
-        headers = {
-            "Authorization": f"Bearer {PUBG_API_KEY}",
-            "Accept": "application/vnd.api+json"
-        }
-        
+        headers = {"Authorization": f"Bearer {PUBG_API_KEY}", "Accept": "application/vnd.api+json"}
+
         player_data, player_id, correct_shard = _find_player(player_name, headers)
-        
-        # Get player's matches  
-        try: 
+
+        # Get player's matches
+        try:
             player_data_url = f"https://api.pubg.com/shards/{correct_shard}/players/{player_id}"
             logger.info(f"Requesting player data from: {player_data_url}")
-            
+
             player_data_response = requests.get(player_data_url, headers=headers)
             player_data_response.raise_for_status()
             player_data = player_data_response.json()
 
             # Extract match IDs from the player data
-            match_ids = [match["id"] for match in player_data["data"]["relationships"]["matches"]["data"]]
+            match_ids = [
+                match["id"] for match in player_data["data"]["relationships"]["matches"]["data"]
+            ]
             match_limit = 10
 
             def fetch_match_detail(match_id: str) -> Optional[dict]:
@@ -341,8 +336,7 @@ async def get_player_matches(player_name: str):
             ordered_ids = match_ids[:match_limit]
             with ThreadPoolExecutor(max_workers=min(10, max(1, len(ordered_ids)))) as pool:
                 future_map = {
-                    pool.submit(fetch_match_detail, mid): idx
-                    for idx, mid in enumerate(ordered_ids)
+                    pool.submit(fetch_match_detail, mid): idx for idx, mid in enumerate(ordered_ids)
                 }
                 results: List[Optional[dict]] = [None] * len(ordered_ids)
                 for future in as_completed(future_map):
@@ -354,12 +348,11 @@ async def get_player_matches(player_name: str):
                 match_details = [r for r in results if r is not None]
 
             return match_details
-            
-        
+
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching matches: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error fetching matches: {str(e)}")
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -426,11 +419,14 @@ async def get_telemetry_frame(
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
+
 # Add a test endpoint to verify the server is working
 @app.get("/test")
 async def test_endpoint():
     return {"message": "Server is running"}
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)

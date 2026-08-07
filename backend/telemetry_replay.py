@@ -1,11 +1,12 @@
 """Sparse telemetry processing and on-demand frame interpolation."""
+
 from __future__ import annotations
 
+import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +168,7 @@ def _extract_map_name(telemetry_data: List[dict]) -> str:
 
 def _match_id_from_url(telemetry_url: str) -> str:
     leaf = telemetry_url.rstrip("/").split("/")[-1]
-    return (
-        leaf.replace("-telemetry.json", "")
-        .replace("-telemetry.js", "")
-        .replace(".json", "")
-    )
+    return leaf.replace("-telemetry.json", "").replace("-telemetry.js", "").replace(".json", "")
 
 
 def _nearest_elapsed(telemetry_data: List[dict], target: datetime) -> float:
