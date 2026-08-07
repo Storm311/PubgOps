@@ -93,10 +93,15 @@ jobs:
 
       - name: Require PUBG API key
         run: |
+          # Trim CR/LF/spaces — GitHub env vars/secrets often pick up a trailing newline,
+          # which makes requests reject the Authorization header and look like "player not found".
+          PUBG_API_KEY="$(printf '%s' "$PUBG_API_KEY" | tr -d '\r\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+          echo "PUBG_API_KEY=$PUBG_API_KEY" >> "$GITHUB_ENV"
           if [ -z "$PUBG_API_KEY" ]; then
             echo "::error::PUBG_API_KEY is empty. Set API_KEY as a secret or variable on the pubg_api_key environment."
             exit 1
           fi
+          echo "PUBG_API_KEY length after trim: ${#PUBG_API_KEY}"
 
       - name: Write backend/.env for compose
         run: |
@@ -139,6 +144,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
           pytest -m integration -q
+
+      - name: Backend logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml logs backend
 
       - name: Tear down stack
         if: always()

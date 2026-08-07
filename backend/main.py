@@ -51,8 +51,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# PUBG API configuration
-PUBG_API_KEY = os.getenv("PUBG_API_KEY")
+# PUBG API configuration (strip whitespace/newlines — common when keys come from CI secrets)
+PUBG_API_KEY = (os.getenv("PUBG_API_KEY") or "").strip()
 if not PUBG_API_KEY:
     logger.error("PUBG_API_KEY not found in environment variables")
     raise ValueError("PUBG_API_KEY environment variable is required")
@@ -82,15 +82,21 @@ def _find_player(player_name: str, headers: dict):
     """Look up a player across shards. Raises HTTPException on auth/not-found."""
     auth_failed = False
     last_auth_detail = None
+    request_errors = 0
+    last_request_error = None
 
     for shard in SHARDS:
-        player_url = (
-            f"https://api.pubg.com/shards/{shard}/players?filter[playerNames]={player_name}"
-        )
-        logger.info("Trying shard %s: %s", shard, player_url)
+        logger.info("Trying shard %s for player %s", shard, player_name)
         try:
-            player_response = requests.get(player_url, headers=headers, timeout=20)
+            player_response = requests.get(
+                f"https://api.pubg.com/shards/{shard}/players",
+                headers=headers,
+                params={"filter[playerNames]": player_name},
+                timeout=20,
+            )
         except requests.exceptions.RequestException as e:
+            request_errors += 1
+            last_request_error = str(e)
             logger.warning("Request error on shard %s: %s", shard, e)
             continue
 
@@ -130,6 +136,16 @@ def _find_player(player_name: str, headers: dict):
             detail=(
                 "PUBG API rejected the API key (401/403). "
                 "Check backend/.env PUBG_API_KEY and restart the backend."
+            ),
+        )
+
+    if request_errors == len(SHARDS):
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "PUBG API requests failed on all shards "
+                f"(last error: {last_request_error}). "
+                "Often caused by trailing whitespace/newlines in PUBG_API_KEY."
             ),
         )
 
