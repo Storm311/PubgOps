@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = [
+  "E501",  # line length handled by formatter preference; avoid mass rewrites
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+markers = [
+  "api: API / TestClient tests (offline / mocked)",
+  "integration: live stack or live PUBG API tests (requires key / running services)",
+]
+testpaths = ["tests"]

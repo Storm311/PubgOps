@@ -1,4 +1,4 @@
-# PubgOps � improvement backlog
+# PubgOps � improvement backlog
 
 Living list of known issues, product gaps, and engineering work. Prefer fixing from the top of each section when picking up work; mark items done by moving them to **Done** with a short note.
 
@@ -23,11 +23,11 @@ Living list of known issues, product gaps, and engineering work. Prefer fixing f
 
 ## Engineering
 
-- [ ] **Automated tests** — Add clean unit/integration tests for new features (backend telemetry parse, teammate resolution, frontend replay helpers) so regressions are caught.
-- [ ] **Deployment pipeline** — CI/CD on push (lint/test/build images, deploy or publish artifacts). Align with Docker Compose stack.
+- [ ] **Automated tests** — Expand unit/integration coverage for teammate resolution and more frontend replay helpers (baseline CI tests already exist).
+- [ ] **CD / deploy** — After CI is green, publish images or deploy the Compose stack to a host (not in CI yet).
 - [ ] **Design implementation discipline** — Design changes must be explicit and intentional (follow existing tactical PUBG visual system; no ad-hoc one-off styles). Prefer shared tokens/components over copy-pasted Tailwind.
 - [ ] **Isolated reusable components** — Extract UI into reusable components (dossier, match row, replay map, controls) so future surfaces can reuse them without coupling to page containers.
 
 ## Done
 
-_(Move completed items here with date + brief note.)_
+- [x] **Deployment pipeline (CI)** — 2026-08-07: GitHub Actions on push/PR — quality (ruff/eslint/tsc), unit tests, Docker Compose smoke + live PUBG API integration via Environment `pubg_api_key`. No CD yet.

@@ -88,6 +88,22 @@ Optional: `REACT_APP_API_BASE_URL` in `frontend/.env` if the API is not on `http
 | POST | `/api/match/telemetry` | Load sparse telemetry for map playback |
 | GET | `/api/match/telemetry/frame` | Optional server-side frame at time `t` |
 
+## CI
+
+Every push and PR runs GitHub Actions (`CI` workflow):
+
+1. **Quality** — ruff, TypeScript, eslint  
+2. **Unit tests** — backend pytest (offline) + frontend Jest  
+3. **Stack + live API** — Docker Compose smoke, then live PUBG calls (Environment `pubg_api_key`)
+
+What each check asserts is documented in [`.github/ci-checklist.md`](.github/ci-checklist.md). CI pastes the matching section into each job’s **Summary** before it runs.
+
+How to follow a run:
+
+- **CI result** job → stage pass/fail table  
+- Each job **Summary** → checklist (what / looking for) + PASS/FAIL lines  
+- **Annotations** → short status; expand **groups** only for install/Docker noise  
+
 ## Notes
 
 - Match detail pages rely on in-memory React context from a prior search — open matches from the search results rather than deep-linking after a refresh.

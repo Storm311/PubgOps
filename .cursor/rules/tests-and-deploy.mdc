@@ -8,4 +8,10 @@ alwaysApply: true
 - New behavior should ship with focused tests when practical (backend pytest for API/telemetry logic; frontend tests for pure helpers like track lerp / teammate rules).
 - Do not weaken or delete tests to make CI pass; fix the code or update tests with intent.
 - The app runs as a Docker Compose stack (`docker compose up --build`). Deployment work should target container builds/pipelines, not only local `start.bat` Python/npm.
-- Secrets (`PUBG_API_KEY`) stay in env / `backend/.env`, never in images or git.
+- Secrets (`PUBG_API_KEY`) stay in env / `backend/.env`, never in images or git. In CI, map GitHub Environment `pubg_api_key` (`API_KEY` secret or variable) to `PUBG_API_KEY`.
+- CI (GitHub Actions `.github/workflows/ci.yml`) on every push/PR:
+  1. **Quality** — backend ruff check/format; frontend `tsc --noEmit` + eslint
+  2. **Unit** — `pytest -m "not integration"`; frontend `npm run test:ci`
+  3. **Integrate** — Compose build/up smoke (`/` + frontend HTTP 200) then live API tests (`pytest -m integration`) against the running stack
+- Keep [`.github/ci-checklist.md`](.github/ci-checklist.md) in sync when adding/changing CI checks or tests (what runs + what pass means). CI prints that checklist into job Summaries.
+- No CD yet — do not add deploy jobs unless explicitly requested.
