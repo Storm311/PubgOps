@@ -13,4 +13,5 @@ alwaysApply: true
   1. **Quality** — backend ruff check/format; frontend `tsc --noEmit` + eslint
   2. **Unit** — `pytest -m "not integration"`; frontend `npm run test:ci`
   3. **Integrate** — Compose build/up smoke (`/` + frontend HTTP 200) then live API tests (`pytest -m integration`) against the running stack
+- Keep [`.github/ci-checklist.md`](.github/ci-checklist.md) in sync when adding/changing CI checks or tests (what runs + what pass means). CI prints that checklist into job Summaries.
 - No CD yet — do not add deploy jobs unless explicitly requested.

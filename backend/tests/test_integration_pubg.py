@@ -21,6 +21,7 @@ def _fail_for_pubg_status(response: httpx.Response, context: str) -> None:
 
 @pytest.mark.integration
 def test_root_via_running_stack():
+    """Running Compose backend GET / → health JSON."""
     with httpx.Client(base_url=BASE_URL, timeout=30.0) as client:
         response = client.get("/")
     assert response.status_code == 200
@@ -29,6 +30,7 @@ def test_root_via_running_stack():
 
 @pytest.mark.integration
 def test_live_player_stats():
+    """Live GET /player/{name} → platform + stats.total_matches (real PUBG API)."""
     with httpx.Client(base_url=BASE_URL, timeout=60.0) as client:
         response = client.get(f"/player/{TEST_PLAYER}")
     _fail_for_pubg_status(response, f"GET /player/{TEST_PLAYER}")
@@ -43,6 +45,7 @@ def test_live_player_stats():
 
 @pytest.mark.integration
 def test_live_player_matches():
+    """Live GET /player/{name}/matches → list; items include match_id and Map/Kills."""
     with httpx.Client(base_url=BASE_URL, timeout=90.0) as client:
         response = client.get(f"/player/{TEST_PLAYER}/matches")
     _fail_for_pubg_status(response, f"GET /player/{TEST_PLAYER}/matches")

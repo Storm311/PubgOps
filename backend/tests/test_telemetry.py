@@ -23,6 +23,7 @@ def _clear_replay_cache():
 
 @pytest.mark.api
 def test_root_endpoint_returns_correct_message():
+    """GET / → 200 and fixed health message."""
     response = client.get("/")
     assert response.status_code == 200
     assert response.json() == {"message": "PubgOps API is running"}
@@ -30,6 +31,7 @@ def test_root_endpoint_returns_correct_message():
 
 @pytest.mark.api
 def test_telemetry_endpoint_handles_invalid_url():
+    """POST telemetry with bad URL → 500 (download/parse failure)."""
     response = client.post(
         "/api/match/telemetry",
         json={"telemetry_url": "invalid_url", "player_name": "test"},
@@ -39,6 +41,7 @@ def test_telemetry_endpoint_handles_invalid_url():
 
 @pytest.mark.api
 def test_telemetry_endpoint_handles_missing_url():
+    """POST telemetry with empty body → 422 validation error."""
     response = client.post("/api/match/telemetry", json={})
     assert response.status_code == 422
 
@@ -86,6 +89,8 @@ def sample_telemetry_data():
 
 @pytest.mark.api
 def test_telemetry_endpoint_processes_valid_data(sample_telemetry_data, monkeypatch):
+    """Mocked gzip telemetry → sparse tracks, Erangel scale, no dense payloads."""
+
     def mock_get(*args, **kwargs):
         class MockResponse:
             def __init__(self, json_data):
@@ -132,6 +137,7 @@ def test_telemetry_endpoint_processes_valid_data(sample_telemetry_data, monkeypa
 
 @pytest.mark.api
 def test_frame_endpoint_interpolates(sample_telemetry_data):
+    """Frame at t=15 interpolates Rinneus between keyframes on 0–1000 map scale."""
     url = "https://example.com/test-telemetry.json"
     replay = build_sparse_replay(url, sample_telemetry_data)
     cache_replay(replay)
@@ -153,6 +159,7 @@ def test_frame_endpoint_interpolates(sample_telemetry_data):
 
 @pytest.mark.api
 def test_map_scale_sanhok():
+    """Savage_Main → Sanhok scale 408000; half-map x ≈ 500."""
     data = [
         {"_T": "LogMatchStart", "_D": "2025-01-01T00:00:00Z", "mapName": "Savage_Main"},
         {
