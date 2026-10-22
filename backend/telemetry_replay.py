@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from player_state import DEAD, PlayerStates, build_player_states
+from telemetry_clock import TelemetryClock
+from zone_timeline import ZoneTimeline, build_zone_timeline
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,8 @@ class ProcessedReplay:
     kill_events: List[KillEvent] = field(default_factory=list)
     # Parallel time index per player for bisect
     player_times: Dict[str, List[float]] = field(default_factory=dict)
+    zone: Optional[ZoneTimeline] = None
+    states: PlayerStates = field(default_factory=PlayerStates)
 
     def finalize(self) -> None:
         for name, frames in self.player_tracks.items():
@@ -149,10 +154,6 @@ def normalize_location(raw: Dict[str, float], scale: float) -> Location:
     )
 
 
-def _parse_iso(ts: str) -> datetime:
-    return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-
-
 def _extract_map_name(telemetry_data: List[dict]) -> str:
     for event in telemetry_data:
         if event.get("_T") == "LogMatchStart":
@@ -169,20 +170,6 @@ def _extract_map_name(telemetry_data: List[dict]) -> str:
 def _match_id_from_url(telemetry_url: str) -> str:
     leaf = telemetry_url.rstrip("/").split("/")[-1]
     return leaf.replace("-telemetry.json", "").replace("-telemetry.js", "").replace(".json", "")
-
-
-def _nearest_elapsed(telemetry_data: List[dict], target: datetime) -> float:
-    closest = 0.0
-    min_diff = float("inf")
-    for other in telemetry_data:
-        if "elapsedTime" not in other or "_D" not in other:
-            continue
-        other_time = _parse_iso(other["_D"])
-        diff = abs((other_time - target).total_seconds())
-        if diff < min_diff:
-            min_diff = diff
-            closest = float(other["elapsedTime"])
-    return closest
 
 
 def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> ProcessedReplay:
@@ -202,13 +189,17 @@ def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> Proce
         map_name=map_name,
         map_scale=map_scale,
     )
+    clock = TelemetryClock(telemetry_data)
+    replay.states = build_player_states(telemetry_data, clock)
 
-    kill_events_by_d: Dict[str, dict] = {}
+    # Same key as player_state, so same-instant multi-kills each get a marker.
+    kill_events_by_key: Dict[tuple, dict] = {}
     for event in telemetry_data:
         if event.get("_T") == "LogPlayerKillV2" and "_D" in event:
-            kill_events_by_d[event["_D"]] = event
+            victim_name = (event.get("victim") or {}).get("name")
+            kill_events_by_key[(victim_name, event["_D"])] = event
 
-    for kill_event in kill_events_by_d.values():
+    for kill_event in kill_events_by_key.values():
         victim = kill_event.get("victim")
         killer = kill_event.get("killer")
         if not victim:
@@ -221,13 +212,11 @@ def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> Proce
             killer_location = None
             if killer and killer.get("location"):
                 killer_location = normalize_location(killer["location"], map_scale)
-            kill_time = _parse_iso(kill_event["_D"])
-            closest_elapsed = _nearest_elapsed(telemetry_data, kill_time)
             replay.kill_events.append(
                 KillEvent(
                     victim_name=victim.get("name", "Unknown"),
                     killer_name=killer.get("name") if killer else None,
-                    elapsed_time=closest_elapsed,
+                    elapsed_time=clock.of(kill_event),
                     victim_location=victim_location,
                     killer_location=killer_location,
                     is_suicide=bool(kill_event.get("isSuicide", False)),
@@ -238,15 +227,6 @@ def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> Proce
             continue
 
     replay.kill_events.sort(key=lambda k: k.elapsed_time)
-
-    dead_players: set = set()
-    # Pre-index kill times by victim for death marking
-    victim_kill_times: Dict[str, List[datetime]] = {}
-    for kd, ke in kill_events_by_d.items():
-        victim = ke.get("victim") or {}
-        name = victim.get("name")
-        if name:
-            victim_kill_times.setdefault(name, []).append(_parse_iso(kd))
 
     for event in telemetry_data:
         if "elapsedTime" not in event or event["elapsedTime"] <= 0:
@@ -269,8 +249,6 @@ def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> Proce
                 character = event["character"]
         elif event_type == "LogPlayerCreate" and "character" in event:
             character = event["character"]
-            if character.get("name") in dead_players:
-                dead_players.discard(character.get("name"))
 
         if not character:
             continue
@@ -283,24 +261,32 @@ def build_sparse_replay(telemetry_url: str, telemetry_data: List[dict]) -> Proce
             continue
 
         player_name = character["name"]
-        is_dead = player_name in dead_players
-        if not is_dead and player_name in victim_kill_times and "_D" in event:
-            event_time = _parse_iso(event["_D"])
-            for kill_time in victim_kill_times[player_name]:
-                if event_time >= kill_time:
-                    dead_players.add(player_name)
-                    is_dead = True
-                    break
-
+        t = float(event["elapsedTime"])
         keyframe = Keyframe(
-            elapsed_time=float(event["elapsedTime"]),
+            elapsed_time=t,
             location=normalize_location(location, map_scale),
             is_game=float(event["common"].get("isGame", 0)),
             team_id=character.get("teamId"),
-            is_dead=is_dead,
+            is_dead=replay.states.life_at(player_name, t) == DEAD,
         )
         replay.player_tracks.setdefault(player_name, []).append(keyframe)
 
+    # Pin each death location so the body stays put until a respawn (if any).
+    for name, t, location in replay.states.deaths:
+        frames = replay.player_tracks.get(name)
+        if not frames:
+            continue
+        frames.append(
+            Keyframe(
+                elapsed_time=t,
+                location=normalize_location(location, map_scale),
+                is_game=frames[-1].is_game,
+                team_id=frames[-1].team_id,
+                is_dead=True,
+            )
+        )
+
+    replay.zone = build_zone_timeline(telemetry_data)
     replay.finalize()
     return replay
 
@@ -374,8 +360,13 @@ def frame_at(replay: ProcessedReplay, t: float) -> Dict[str, Any]:
     }
 
 
-def load_payload(replay: ProcessedReplay) -> Dict[str, Any]:
-    """Metadata + compact sparse tracks for one-shot client download (local scrubbing)."""
+def load_payload(replay: ProcessedReplay, player_name: Optional[str] = None) -> Dict[str, Any]:
+    """Metadata + compact sparse tracks for one-shot client download (local scrubbing).
+
+    ``player_state`` (health, gear, status over time) is only included for ``player_name``.
+    """
+    states = replay.states
+    focus = states.find(player_name)
     total_keyframes = sum(len(v) for v in replay.player_tracks.values())
     tracks: Dict[str, List[Dict[str, Any]]] = {}
     for name, frames in replay.player_tracks.items():
@@ -404,6 +395,19 @@ def load_payload(replay: ProcessedReplay) -> Dict[str, Any]:
         "player_count": len(replay.player_tracks),
         "tracks": tracks,
         "kills": [k.to_dict() for k in replay.kill_events],
+        "zone": replay.zone.to_dict(replay.map_scale) if replay.zone else None,
+        "life": {
+            name: [[round(t, 2), s] for t, s in states.players[name].life]
+            for name in replay.player_tracks
+            if name in states.players and states.players[name].life
+        },
+        "alive_counts": [[round(t, 2), n] for t, n in states.alive_counts],
+        "focus_name": focus,
+        "player_state": states.players[focus].to_dict() if focus else None,
+        "teammates": [
+            {"name": name, **states.players[name].to_dict()}
+            for name in (states.teammates(focus) if focus else [])
+        ],
         "debug_info": {
             "player_name_tracks": len(replay.player_tracks),
             "total_keyframes": total_keyframes,
@@ -412,8 +416,3 @@ def load_payload(replay: ProcessedReplay) -> Dict[str, Any]:
             "map_scale": replay.map_scale,
         },
     }
-
-
-# Back-compat alias
-def load_metadata(replay: ProcessedReplay) -> Dict[str, Any]:
-    return load_payload(replay)

@@ -115,6 +115,8 @@ jobs:
           echo "  • telemetry sparse tracks from mocked gzip"
           echo "  • frame interpolation at t=15"
           echo "  • Sanhok map scale"
+          echo "  • zone timeline: phases, shrink timing, zone dmg, red zones, payload"
+          echo "  • player state: death/respawn life cycle, alive count, loadout, combat, teammates, clock"
           set +e
           OUT="$(pytest -m "not integration" -v --tb=line 2>&1)"
           CODE=$?
@@ -153,6 +155,8 @@ jobs:
           echo "Running replayMath unit tests:"
           echo "  • formatDuration → 0:00 / 1:05 / 10:00"
           echo "  • lerp → 0, 100, 50, 12.5"
+          echo "  • zoneAt → waiting / shrinking / next phase / red zones"
+          echo "  • valueAt / itemLabel / snapshotAt → step lookups, item names, snapshots"
           set +e
           npm run test:ci > /tmp/frontend-unit.txt 2>&1
           CODE=$?

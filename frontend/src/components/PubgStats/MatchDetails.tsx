@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePubgStats } from './PubgStatsContext';
 import TelemetryOverlay, { TrackKeyframe } from './TelemetryOverlay';
+import { ZoneTimeline } from '../../utils/zoneMath';
+import { LifeState, PlayerState, Series, Teammate } from '../../utils/playerState';
 
 interface MatchDetailsData {
   match_id: string;
@@ -33,6 +35,13 @@ interface ReplayData {
   kill_count: number;
   player_count: number;
   tracks: Record<string, TrackKeyframe[]>;
+  zone?: ZoneTimeline | null;
+  life?: Record<string, Series<LifeState>>;
+  alive_counts?: Series<number>;
+  player_state?: PlayerState | null;
+  teammates?: Teammate[];
+  /** Telemetry spelling of the searched player (lookup is case-insensitive). */
+  focus_name?: string | null;
 }
 
 interface MatchDetailsProps {
@@ -294,8 +303,13 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
               <TelemetryOverlay
                 tracks={replay.tracks}
                 elapsedTime={replay.elapsed_time}
-                playerName={playerName}
+                playerName={replay.focus_name ?? playerName}
                 mapName={matchData.Map}
+                zone={replay.zone}
+                life={replay.life}
+                aliveCounts={replay.alive_counts}
+                playerState={replay.player_state}
+                teammates={replay.teammates}
               />
             )}
           </div>

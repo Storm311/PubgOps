@@ -18,6 +18,18 @@ import destonMap from '../../assets/Pubg/map_images/compressed/Deston_High_Res.p
 import rondoMap from '../../assets/Pubg/map_images/compressed/Rondo_High_Res.png';
 import campJackalMap from '../../assets/Pubg/map_images/compressed/Camp_Jackal_High_Res.png';
 import { formatDuration, lerp } from '../../utils/replayMath';
+import { ZoneTimeline, zoneAt } from '../../utils/zoneMath';
+import {
+  LifeState,
+  PlayerState,
+  Series,
+  snapshotAt,
+  Teammate,
+  valueAt,
+} from '../../utils/playerState';
+import { ZoneLayer } from './ZoneOverlay';
+import { AliveCounter, PhaseBadge } from './MapHud';
+import { FocusPanel, TeammatesPanel } from './SquadPanel';
 
 const mapImages: { [key: string]: string } = {
   Erangel: erangelMap,
@@ -58,7 +70,6 @@ export interface TrackKeyframe {
   y: number;
   z: number;
   team_id?: number | null;
-  is_dead?: boolean;
 }
 
 export interface FramePlayer {
@@ -67,7 +78,7 @@ export interface FramePlayer {
   y: number;
   z: number;
   team_id?: number | null;
-  is_dead?: boolean;
+  life: LifeState;
 }
 
 interface TelemetryOverlayProps {
@@ -75,6 +86,13 @@ interface TelemetryOverlayProps {
   elapsedTime: number;
   playerName: string;
   mapName: string;
+  zone?: ZoneTimeline | null;
+  /** Per-player life changes (knocked / dead / alive again after a respawn). */
+  life?: Record<string, Series<LifeState>>;
+  aliveCounts?: Series<number>;
+  /** Searched player's health / gear / status over time. */
+  playerState?: PlayerState | null;
+  teammates?: Teammate[];
 }
 
 const BASE_DOT_R = 4;
@@ -183,6 +201,7 @@ const bisectRight = (times: number[], target: number): number => {
 const playersAtTime = (
   tracks: Record<string, TrackKeyframe[]>,
   timeIndex: Record<string, number[]>,
+  life: Record<string, Series<LifeState>> | undefined,
   t: number
 ): FramePlayer[] => {
   const out: FramePlayer[] = [];
@@ -195,15 +214,16 @@ const playersAtTime = (
     let y: number;
     let z: number;
     let team_id: number | null | undefined;
-    let is_dead: boolean;
+    const state = valueAt(life?.[name], t, 'alive');
+    const atEnd = t >= times[times.length - 1];
 
-    if (t >= times[times.length - 1]) {
-      const f = frames[frames.length - 1];
+    if (atEnd || state === 'dead') {
+      // Dead bodies stay where they fell (death keyframe) until a respawn.
+      const f = frames[atEnd ? frames.length - 1 : bisectRight(times, t) - 1];
       x = f.x;
       y = f.y;
       z = f.z;
       team_id = f.team_id;
-      is_dead = !!f.is_dead;
     } else {
       const idx = bisectRight(times, t);
       const prev = frames[idx - 1];
@@ -214,10 +234,9 @@ const playersAtTime = (
       y = lerp(prev.y, next.y, u);
       z = lerp(prev.z, next.z, u);
       team_id = prev.team_id;
-      is_dead = !!(prev.is_dead || next.is_dead);
     }
 
-    out.push({ name, x, y, z, team_id, is_dead });
+    out.push({ name, x, y, z, team_id, life: state });
   }
   return out;
 };
@@ -246,6 +265,11 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
   elapsedTime,
   playerName,
   mapName,
+  zone,
+  life,
+  aliveCounts,
+  playerState,
+  teammates,
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -281,8 +305,14 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
   }, [tracks]);
 
   const players = useMemo(
-    () => playersAtTime(tracks, timeIndex, currentTime),
-    [tracks, timeIndex, currentTime]
+    () => playersAtTime(tracks, timeIndex, life, currentTime),
+    [tracks, timeIndex, life, currentTime]
+  );
+  const alive = valueAt(aliveCounts, currentTime, aliveCounts?.[0]?.[1] ?? null);
+
+  const zoneState = useMemo(
+    () => (zone ? zoneAt(zone, currentTime) : null),
+    [zone, currentTime]
   );
 
   const mainPlayerTeamId = useMemo(() => {
@@ -513,97 +543,124 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
         </span>
       </div>
 
-      <div
-        ref={mapContainerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={() => setIsDragging(false)}
-        onMouseLeave={() => setIsDragging(false)}
-        className={`relative overflow-hidden ${
-          isDragging ? 'cursor-grabbing' : view.zoom > 1.05 ? 'cursor-grab' : 'cursor-zoom-in'
-        }`}
-        style={{
-          height: 'min(70vh, 720px)',
-          width: '100%',
-          backgroundColor: '#0a0c0a',
-          overscrollBehavior: 'contain',
-          touchAction: 'none',
-        }}
-      >
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            ref={viewportRef}
-            className="relative overflow-hidden"
-            style={{
-              width: 'min(100%, 720px)',
-              aspectRatio: '1 / 1',
-            }}
-          >
-            {/* Map image only — CSS zoom/pan */}
+      <div className="flex flex-col lg:flex-row">
+        {playerState && (
+          <FocusPanel
+            focus={{ name: playerName, snapshot: snapshotAt(playerState, currentTime) }}
+          />
+        )}
+        <div
+          ref={mapContainerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={() => setIsDragging(false)}
+          onMouseLeave={() => setIsDragging(false)}
+          className={`relative min-w-0 flex-1 overflow-hidden ${
+            isDragging ? 'cursor-grabbing' : view.zoom > 1.05 ? 'cursor-grab' : 'cursor-zoom-in'
+          }`}
+          style={{
+            height: 'min(70vh, 720px)',
+            width: '100%',
+            backgroundColor: '#0a0c0a',
+            overscrollBehavior: 'contain',
+            touchAction: 'none',
+          }}
+        >
+          <div className="absolute inset-0 flex items-center justify-center">
             <div
-              ref={mapStageRef}
-              className="absolute inset-0 origin-center"
+              ref={viewportRef}
+              className="relative overflow-hidden"
               style={{
-                transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-                willChange: 'transform',
+                width: 'min(100%, 720px, 70vh)',
+                aspectRatio: '1 / 1',
               }}
             >
-              <img
-                src={mapSrc}
-                alt={`${mapName} Map`}
-                draggable={false}
-                decoding="async"
-                className="absolute inset-0 h-full w-full select-none object-contain pointer-events-none"
-              />
-            </div>
+              {/* Map image only — CSS zoom/pan */}
+              <div
+                ref={mapStageRef}
+                className="absolute inset-0 origin-center"
+                style={{
+                  transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+                  willChange: 'transform',
+                }}
+              >
+                <img
+                  src={mapSrc}
+                  alt={`${mapName} Map`}
+                  draggable={false}
+                  decoding="async"
+                  className="absolute inset-0 h-full w-full select-none object-contain pointer-events-none"
+                />
+              </div>
 
-            {/* Dots in screen space — never CSS-scaled, so they stay crisp */}
-            <svg
-              className="absolute inset-0 h-full w-full pointer-events-none"
-              width={stageSize}
-              height={stageSize}
-              viewBox={`0 0 ${stageSize} ${stageSize}`}
-            >
-              {screenPlayers.map((player) => {
-                const isMain = player.name === playerName;
-                const r = isMain ? dotR * 1.15 : dotR;
-                return (
-                  <g key={player.name}>
-                    <circle
-                      cx={player.sx}
-                      cy={player.sy}
-                      r={r}
-                      fill={getTeamColor(player.team_id, isMain)}
-                      stroke={
-                        player.team_id === mainPlayerTeamId
-                          ? 'rgba(255, 60, 60, 0.95)'
-                          : 'rgba(255,255,255,0.9)'
-                      }
-                      strokeWidth={strokeW}
-                      opacity={player.is_dead ? 0.45 : 1}
-                    />
-                    {player.is_dead && (
-                      <g stroke="white" strokeWidth={strokeW} opacity={0.85}>
-                        <line
-                          x1={player.sx - xLen}
-                          y1={player.sy - xLen}
-                          x2={player.sx + xLen}
-                          y2={player.sy + xLen}
-                        />
-                        <line
-                          x1={player.sx + xLen}
-                          y1={player.sy - xLen}
-                          x2={player.sx - xLen}
-                          y2={player.sy + xLen}
-                        />
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            </svg>
+              {/* Dots in screen space — never CSS-scaled, so they stay crisp */}
+              <svg
+                className="absolute inset-0 h-full w-full pointer-events-none"
+                width={stageSize}
+                height={stageSize}
+                viewBox={`0 0 ${stageSize} ${stageSize}`}
+              >
+                {zoneState && (
+                  <ZoneLayer
+                    state={zoneState}
+                    project={(x, y) => mapToScreen(x, y, stageSize, view.zoom, view.x, view.y)}
+                    unit={(stageSize / 1000) * view.zoom}
+                    size={stageSize}
+                  />
+                )}
+                {screenPlayers.map((player) => {
+                  const isMain = player.name === playerName;
+                  const r = isMain ? dotR * 1.15 : dotR;
+                  return (
+                    <g key={player.name}>
+                      <circle
+                        cx={player.sx}
+                        cy={player.sy}
+                        r={r}
+                        fill={getTeamColor(player.team_id, isMain)}
+                        stroke={
+                          player.team_id === mainPlayerTeamId
+                            ? 'rgba(255, 60, 60, 0.95)'
+                            : 'rgba(255,255,255,0.9)'
+                        }
+                        strokeWidth={strokeW}
+                        opacity={player.life === 'dead' ? 0.45 : 1}
+                      />
+                      {player.life === 'dead' && (
+                        <g stroke="white" strokeWidth={strokeW} opacity={0.85}>
+                          <line
+                            x1={player.sx - xLen}
+                            y1={player.sy - xLen}
+                            x2={player.sx + xLen}
+                            y2={player.sy + xLen}
+                          />
+                          <line
+                            x1={player.sx + xLen}
+                            y1={player.sy - xLen}
+                            x2={player.sx - xLen}
+                            y2={player.sy + xLen}
+                          />
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+              </svg>
+              {alive !== null && <AliveCounter alive={alive} />}
+              {zoneState && (
+                <PhaseBadge phase={zoneState.phase} shrinking={zoneState.status === 'shrinking'} />
+              )}
+            </div>
           </div>
         </div>
+        {playerState && teammates && teammates.length > 0 && (
+          <TeammatesPanel
+            teammates={teammates.map((m) => ({
+              name: m.name,
+              snapshot: snapshotAt(m, currentTime),
+            }))}
+          />
+        )}
       </div>
     </div>
   );

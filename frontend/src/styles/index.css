@@ -104,3 +104,13 @@
   cursor: pointer;
   clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
 }
+
+/* Scrollable side panels without a visible scrollbar (wheel / touch still scroll). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -176,6 +176,12 @@ class TelemetryLoadResponse(BaseModel):
     player_count: int
     tracks: Dict[str, List[dict]]
     kills: List[dict] = []
+    zone: Optional[dict] = None
+    life: Dict[str, List[list]] = {}
+    alive_counts: List[list] = []
+    focus_name: Optional[str] = None
+    player_state: Optional[dict] = None
+    teammates: List[dict] = []
     debug_info: dict
 
 
@@ -407,7 +413,7 @@ async def process_telemetry(request: TelemetryRequest):
             request.player_name,
         )
         replay = _load_or_get_replay(request.telemetry_url)
-        return load_payload(replay)
+        return load_payload(replay, request.player_name)
     except HTTPException:
         raise
     except Exception as e:
