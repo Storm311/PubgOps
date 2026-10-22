@@ -144,28 +144,6 @@ const StopIcon = () => (
   </svg>
 );
 
-const SpeedUpIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M13 10V3L4 14h7v7l9-11h-7z"
-    />
-  </svg>
-);
-
-const SpeedDownIcon = () => (
-  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M11 14V3L2 14h9v7l9-11h-9z"
-    />
-  </svg>
-);
-
 const TEAM_COLORS = [
   'rgba(255, 0, 0, 0.85)',
   'rgba(0, 220, 0, 0.85)',
@@ -508,7 +486,7 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
           className="border border-tact-rim bg-tact-steel p-2 text-tact-sand hover:border-tact-gold/40"
           aria-label="Slower"
         >
-          <SpeedDownIcon />
+          <span className="block w-6 font-display text-xl leading-6">−</span>
         </button>
         <span className="min-w-[2.5rem] text-center font-mono text-sm text-tact-flare">
           {playbackSpeed}x
@@ -519,7 +497,7 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
           className="border border-tact-rim bg-tact-steel p-2 text-tact-sand hover:border-tact-gold/40"
           aria-label="Faster"
         >
-          <SpeedUpIcon />
+          <span className="block w-6 font-display text-xl leading-6">+</span>
         </button>
         <div className="mx-1 min-w-[140px] flex-1 sm:mx-3">
           <input
@@ -555,11 +533,10 @@ const TelemetryOverlay: React.FC<TelemetryOverlayProps> = ({
           onMouseMove={handleMouseMove}
           onMouseUp={() => setIsDragging(false)}
           onMouseLeave={() => setIsDragging(false)}
-          className={`relative min-w-0 flex-1 overflow-hidden ${
+          className={`relative order-first aspect-square min-w-0 overflow-hidden lg:order-none lg:aspect-auto lg:h-[min(70vh,720px)] lg:flex-1 ${
             isDragging ? 'cursor-grabbing' : view.zoom > 1.05 ? 'cursor-grab' : 'cursor-zoom-in'
           }`}
           style={{
-            height: 'min(70vh, 720px)',
             width: '100%',
             backgroundColor: '#0a0c0a',
             overscrollBehavior: 'contain',

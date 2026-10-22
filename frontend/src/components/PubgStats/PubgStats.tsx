@@ -131,27 +131,23 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
     setError,
   } = usePubgStats();
 
-  const [toast, setToast] = React.useState<{ message: string; visible: boolean }>({
-    message: '',
-    visible: false,
-  });
+  // Draft input; the context name only changes once a search succeeds.
+  const [query, setQuery] = React.useState(playerName);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!playerName.trim()) return;
+    const name = query.trim();
+    if (!name) return;
 
     setLoading(true);
     setError(null);
     try {
-      const [statsData, matchesData] = await Promise.all([
-        getPlayerStats(playerName),
-        getPlayerMatches(playerName),
-      ]);
+      // Sequential: a miss costs one lookup, not two (PUBG allows 10 req/min).
+      const statsData = await getPlayerStats(name);
+      const matchesData = await getPlayerMatches(name);
       setStats(statsData);
       setMatches(matchesData);
-      setPlayerName(playerName.trim());
-      setToast({ message: `Intel locked for ${playerName.trim()}`, visible: true });
-      setTimeout(() => setToast((prev) => ({ ...prev, visible: false })), 3000);
+      setPlayerName(name);
     } catch (err) {
       const errorMessage = apiErrorMessage(err);
       setError(errorMessage);
@@ -193,8 +189,8 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
               <input
                 type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. TGLTN"
                 className="clip-panel flex-1 border border-tact-rim bg-tact-steel/80 px-4 py-3.5 font-hud text-lg text-tact-fog placeholder:text-tact-mute/60 outline-none transition focus:border-tact-gold/60 focus:shadow-glow"
               />
@@ -220,25 +216,18 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
               <input
                 type="text"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search another player…"
                 className="clip-panel flex-1 border border-tact-rim bg-tact-steel/70 px-4 py-3 font-hud text-base text-tact-fog placeholder:text-tact-mute/60 outline-none transition focus:border-tact-gold/50"
               />
-              <div className="relative">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="clip-btn w-full bg-tact-gold px-6 py-3 font-display text-xl tracking-[0.1em] text-tact-void transition hover:bg-tact-flare disabled:opacity-50 sm:w-auto"
-                >
-                  {loading ? 'SCANNING…' : 'RELOAD'}
-                </button>
-                {toast.visible && (
-                  <div className="absolute right-0 top-full z-30 mt-2 whitespace-nowrap border border-tact-signal/40 bg-tact-moss px-3 py-2 font-mono text-xs text-tact-fog animate-fade-up sm:left-full sm:right-auto sm:top-1/2 sm:mt-0 sm:translate-y-[-50%] sm:ml-3">
-                    {toast.message}
-                  </div>
-                )}
-              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="clip-btn w-full bg-tact-gold px-6 py-3 font-display text-xl tracking-[0.1em] text-tact-void transition hover:bg-tact-flare disabled:opacity-50 sm:w-auto"
+              >
+                {loading ? 'SCANNING…' : 'SEARCH'}
+              </button>
             </div>
           </form>
 
@@ -292,12 +281,14 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
                     >
                       <div>
                         <p className="stat-label">{item.label}</p>
-                        <p className="stat-value mt-1">{item.value}</p>
+                        <p className="stat-value mt-1">{item.value.toLocaleString()}</p>
                       </div>
                       <img
                         src={item.icon}
                         alt=""
-                        className="h-9 w-9 opacity-80 brightness-110 contrast-125"
+                        className={`h-9 w-9 opacity-80 brightness-110 contrast-125 ${
+                          item.icon === damageIcon ? 'invert' : ''
+                        }`}
                       />
                     </div>
                   ))}
@@ -313,6 +304,17 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
                     {matches.length} reports
                   </span>
                 </div>
+
+                {matches.length === 0 && (
+                  <div className="panel clip-panel px-5 py-10 text-center">
+                    <p className="font-mono text-xs uppercase tracking-[0.28em] text-tact-mute">
+                      No matches in the last 14 days
+                    </p>
+                    <p className="mt-2 font-hud text-tact-mute">
+                      The PUBG API only keeps two weeks of match history.
+                    </p>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   {matches.map((match) => (
@@ -336,7 +338,7 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
                               {match.Map}
                             </span>
                             <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-tact-mute">
-                              {match['Game Mode']} · {match['Match Type']} ·{' '}
+                              {match['Game Mode']} · {match['Match Type']} · Survived{' '}
                               {formatDuration(match.Duration)}
                             </span>
                           </div>
@@ -351,7 +353,7 @@ const PubgStats: React.FC<PubgStatsProps> = ({ className, onError }) => {
                             <div>
                               <p className="stat-label">Damage</p>
                               <p className="font-hud text-xl font-semibold text-tact-fog">
-                                {Math.round(match.Damage)}
+                                {Math.round(match.Damage).toLocaleString()}
                               </p>
                             </div>
                             <div>

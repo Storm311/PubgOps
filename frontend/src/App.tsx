@@ -25,10 +25,6 @@ const App: React.FC = () => {
                   Battleground // Intel
                 </span>
               </Link>
-              <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-[0.28em] text-tact-mute sm:flex">
-                <span className="h-1.5 w-1.5 bg-tact-signal animate-pulse" />
-                Live feed
-              </div>
             </div>
           </header>
 

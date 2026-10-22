@@ -5,7 +5,6 @@ Living list of known issues, product gaps, and engineering work. Prefer fixing f
 ## Bugs
 
 - [ ] **Teammates overflow (>3 in squad list)** — Recent engagements can show more than 3 teammates. Likely bad squad resolution after death (e.g. spectating an enemy team). Audit backend teammate logic in match detail building (`winPlace` / roster), and exclude non-squad members from spectate periods.
-- [ ] **Search stuck after a failed lookup** — After a bad/failed player search, subsequent searches (even valid names) stay invalid until a full reset. Clear error + loading state and do not leave context/stats in a poisoned state on failure.
 
 ## Replay feature
 
@@ -28,6 +27,8 @@ Living list of known issues, product gaps, and engineering work. Prefer fixing f
 
 ## Done
 
+- [x] **Search stuck after a failed lookup** — 2026-10-22: Root cause was PUBG's 10 req/min key limit: a miss burned ~10 calls and the next lookup got 429 on every shard, reported as "not found". Backend now returns 429 with a clear message (`_raise_if_rate_limited`), frontend fetches matches only after stats succeed, and the search box is a draft that no longer rewrites the loaded player.
+- [x] **Frontend polish pass** — 2026-10-22: Mobile replay map renders (was 0 px tall), replay auto-loads and sits above stats, match page survives refresh (sessionStorage), empty-match state, "Survived" label for `timeSurvived`, grouped numbers, overflowing toast and fake "Live feed" removed, distinct −/+ speed controls. See `tasks/plan.md`.
 - [x] **Death / revive visuals in replay** — 2026-10-01: Life state comes from knock / revive / kill / in-game respawn events (`backend/player_state.py`), so recalled players show alive again and dead again on a second death. Bodies stay at the death location. Map shows a live alive count (down on deaths, up on respawns) and the zone phase.
 - [x] **Loadout for searched player** — 2026-10-01: Replay sidebar shows the searched player's status, health, armor levels, guns and throwables over time.
 - [x] **Blue zone** — 2026-10-01: Replay draws blue zone, white circle and red zones over time, with the current phase shown bottom-right. Phase timings are fitted from `LogGameStatePeriodic` samples in `backend/zone_timeline.py`; interpolated client-side in `frontend/src/utils/zoneMath.ts`.

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
 interface PlayerStats {
   player_name: string;
@@ -47,12 +47,40 @@ interface PubgStatsContextType {
 
 const PubgStatsContext = createContext<PubgStatsContextType | undefined>(undefined);
 
+const STORAGE_KEY = 'pubgops:search';
+
+interface SavedSearch {
+  playerName: string;
+  stats: PlayerStats | null;
+  matches: MatchDetails[];
+}
+
+// Per-tab copy of the last search so a refresh on a match page still has its data.
+const loadSaved = (): SavedSearch | null => {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedSearch) : null;
+  } catch {
+    return null;
+  }
+};
+
 export const PubgStatsProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [playerName, setPlayerName] = useState('');
-  const [stats, setStats] = useState<PlayerStats | null>(null);
-  const [matches, setMatches] = useState<MatchDetails[]>([]);
+  const [saved] = useState(loadSaved);
+  const [playerName, setPlayerName] = useState(saved?.playerName ?? '');
+  const [stats, setStats] = useState<PlayerStats | null>(saved?.stats ?? null);
+  const [matches, setMatches] = useState<MatchDetails[]>(saved?.matches ?? []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!stats) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ playerName, stats, matches }));
+    } catch {
+      // Storage full or blocked: refresh just loses the search, as before.
+    }
+  }, [playerName, stats, matches]);
 
   return (
     <PubgStatsContext.Provider

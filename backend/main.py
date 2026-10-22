@@ -78,9 +78,18 @@ MAP_NAMES = {
 SHARDS = ["steam", "kakao", "psn", "xbox", "stadia"]
 
 
+RATE_LIMIT_DETAIL = "PUBG API rate limit hit (10 requests/min). Retry in a minute."
+
+
+def _raise_if_rate_limited(response) -> None:
+    if response.status_code == 429:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_DETAIL)
+
+
 def _find_player(player_name: str, headers: dict):
     """Look up a player across shards. Raises HTTPException on auth/not-found."""
     auth_failed = False
+    rate_limited = False
     last_auth_detail = None
     request_errors = 0
     last_request_error = None
@@ -115,6 +124,11 @@ def _find_player(player_name: str, headers: dict):
             logger.info("Player not on shard %s", shard)
             continue
 
+        if player_response.status_code == 429:
+            rate_limited = True
+            logger.warning("Shard %s rate limited (429)", shard)
+            continue
+
         if not player_response.ok:
             logger.warning(
                 "Shard %s returned %s: %s",
@@ -138,6 +152,10 @@ def _find_player(player_name: str, headers: dict):
                 "Check backend/.env PUBG_API_KEY and restart the backend."
             ),
         )
+
+    # A 429 shard may hold the player, so "not found" would be a lie.
+    if rate_limited:
+        raise HTTPException(status_code=429, detail=RATE_LIMIT_DETAIL)
 
     if request_errors == len(SHARDS):
         raise HTTPException(
@@ -224,7 +242,8 @@ async def get_player_stats(player_name: str):
             )
             logger.info(f"Requesting lifetime stats from: {lifetime_url}")
 
-            lifetime_response = requests.get(lifetime_url, headers=headers)
+            lifetime_response = requests.get(lifetime_url, headers=headers, timeout=20)
+            _raise_if_rate_limited(lifetime_response)
             lifetime_response.raise_for_status()
             lifetime_data = lifetime_response.json()
 
@@ -282,7 +301,8 @@ async def get_player_matches(player_name: str):
             player_data_url = f"https://api.pubg.com/shards/{correct_shard}/players/{player_id}"
             logger.info(f"Requesting player data from: {player_data_url}")
 
-            player_data_response = requests.get(player_data_url, headers=headers)
+            player_data_response = requests.get(player_data_url, headers=headers, timeout=20)
+            _raise_if_rate_limited(player_data_response)
             player_data_response.raise_for_status()
             player_data = player_data_response.json()
 

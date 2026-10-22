@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { usePubgStats } from './PubgStatsContext';
 import TelemetryOverlay, { TrackKeyframe } from './TelemetryOverlay';
@@ -91,8 +91,10 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
     window.scrollTo(0, 0);
   }, []);
 
-  const handleLoadTelemetry = async () => {
-    if (!matchData?.Telemetry_Link) return;
+  const telemetryLink = matchData?.Telemetry_Link;
+
+  const handleLoadTelemetry = useCallback(async () => {
+    if (!telemetryLink) return;
 
     setIsLoadingTelemetry(true);
     setLoadError(null);
@@ -101,7 +103,7 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          telemetry_url: matchData.Telemetry_Link,
+          telemetry_url: telemetryLink,
           player_name: playerName,
         }),
       });
@@ -122,7 +124,12 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
     } finally {
       setIsLoadingTelemetry(false);
     }
-  };
+  }, [telemetryLink, playerName]);
+
+  // The replay is the point of this page: load it on open (telemetry CDN, not rate-limited).
+  useEffect(() => {
+    handleLoadTelemetry();
+  }, [handleLoadTelemetry]);
 
   if (!matchData) {
     return (
@@ -172,7 +179,7 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
                   {matchData.Map}
                 </h1>
                 <p className="mt-2 font-mono text-xs uppercase tracking-[0.22em] text-tact-mute">
-                  {matchData['Game Mode']} · {matchData['Match Type']} ·{' '}
+                  {matchData['Game Mode']} · {matchData['Match Type']} · Survived{' '}
                   {formatDuration(matchData.Duration)}
                 </p>
               </div>
@@ -193,7 +200,7 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
               <div className="grid grid-cols-2 gap-3">
                 {[
                   { label: 'Kills', value: matchData.Kills },
-                  { label: 'Damage', value: Math.round(matchData.Damage) },
+                  { label: 'Damage', value: Math.round(matchData.Damage).toLocaleString() },
                   { label: 'Assists', value: matchData.Assists },
                   ...combatStats,
                 ].map((stat) => (
@@ -270,7 +277,7 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
                 disabled={isLoadingTelemetry}
                 className="clip-btn bg-tact-gold px-5 py-2 font-display text-lg tracking-wider text-tact-void hover:bg-tact-flare disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isLoadingTelemetry ? 'SYNCING…' : 'LOAD REPLAY'}
+                {isLoadingTelemetry ? 'SYNCING…' : loadError ? 'RETRY' : 'LOAD REPLAY'}
               </button>
             )}
           </div>
@@ -285,10 +292,7 @@ const MatchDetails: React.FC<MatchDetailsProps> = ({ className }) => {
             {matchData.Telemetry_Link && !replay && (
               <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 bg-tact-ink/40 px-4 py-12 text-center">
                 <p className="font-mono text-xs uppercase tracking-[0.28em] text-tact-mute">
-                  Replay packet standing by
-                </p>
-                <p className="max-w-sm font-hud text-tact-mute">
-                  Server parses telemetry once; scrubbing runs locally from sparse keyframes.
+                  {isLoadingTelemetry ? 'Syncing telemetry…' : 'Replay packet standing by'}
                 </p>
               </div>
             )}
